@@ -6,8 +6,6 @@ on Claims (patient_id)
 create nonclustered index idx_claims_Encounter
 on Claims (encounter_id)
 
-create nonclustered index idx_claims_payer
-on Claims (payer_id)
 
 ----------------coditions_index--------------------
 

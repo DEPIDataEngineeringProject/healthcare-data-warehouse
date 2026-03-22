@@ -56,22 +56,13 @@ create table Claims (
 	claim_id uniqueidentifier PRIMARY KEY,
 	patient_id uniqueidentifier foreign key references Patients(patient_id),
 	encounter_id uniqueidentifier foreign key references Encounters (encounter_id),
-	payer_id int,
+	payer_name varchar (50),
 	amount_billed DECIMAL(10, 2),
 	amount_paid DECIMAL(10, 2),
 	Status  NVARCHAR(50),
 )
 
-create table Payer(
-	payer_id int PRIMARY KEY,
-	payer_name nvarchar(100)
-)
 
-alter table Claims
-add constraint FK_Payer foreign key (payer_id) 
-references Payer (payer_id) 
-on delete cascade 
-on update cascade
 
 create table Conditions (
 	condition_id uniqueidentifier PRIMARY KEY,

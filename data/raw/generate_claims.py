@@ -1,44 +1,139 @@
 import pandas as pd
 import numpy as np
-from faker import Faker 
+import uuid
+import random
+from faker import Faker
+import json
 
 fake = Faker()
 
-patients = pd.read_csv(r'D:\DEPI\DEPI final project\data sources\patients.csv')
-encounters = pd.read_csv(r'D:\DEPI\DEPI final project\data sources\encounters.csv')
-n_claims = 200_000
+# =========================
+# Load Data
+# =========================
+patients_df = pd.read_csv(r"D:\DEPI\DEPI final project\data sources\patients.csv")
+encounters_df = pd.read_csv(r"D:\DEPI\DEPI final project\data sources\encounters.csv")
 
-sampled_encounters = encounters.sample(n=n_claims, replace=True).reset_index(drop=True)
+# =========================
+# Payers Setup (Realistic)
+# =========================
+payers = [
+    {"name": "Medicare", "type": "public"},
+    {"name": "Medicaid", "type": "public"},
+    {"name": "Blue Cross Blue Shield", "type": "private"},
+    {"name": "Aetna", "type": "private"},
+    {"name": "Cigna", "type": "private"},
+    {"name": "UnitedHealthcare", "type": "private"},
+    {"name": "Self-Pay", "type": "self"}
+]
 
-patient_ids = sampled_encounters["PATIENT"].values
-encounter_ids = sampled_encounters["Id"].values
+# Denial reasons
+denial_reasons = [
+    "Missing documentation",
+    "Invalid coding",
+    "Out of network",
+    "Duplicate claim",
+    "Service not covered"
+]
 
-num_payers = 100000  # Number of unique payers
-payer_names = [fake.name() + "" for _ in range(num_payers)]
+# =========================
+# Helper Functions
+# =========================
 
-amount_billed = np.round(np.random.uniform(100, 5000, n_claims), 2)
+def choose_payer():
+    return random.choice(payers)
 
-denial_mask = np.random.rand(n_claims) < 0.18  # 18% denial
-status = np.where(denial_mask, "denied", np.random.choice(["approved", "paid"], n_claims))
 
-amount_paid = np.where(denial_mask, 0, np.round(amount_billed * np.random.uniform(0.7, 1.0, n_claims), 2))
-denial_reasons = ["Incomplete documentation", "Coverage expired", "Invalid diagnosis code", "Duplicate claim", "Service not covered"]
-denial_reason = np.where(denial_mask, np.random.choice(denial_reasons, n_claims), None)
+def generate_status(payer_type):
+    r = random.random()
 
-payer_name = np.random.choice( payer_names, n_claims)
+    # Public insurance (lower denial)
+    if payer_type == "public":
+        if r < 0.75:
+            return "paid"
+        elif r < 0.9:
+            return "approved"
+        else:
+            return "denied"
 
-claim_id = np.array([np.base_repr(i + np.random.randint(1e6), 36) for i in range(n_claims)])
+    # Private insurance (moderate denial)
+    elif payer_type == "private":
+        if r < 0.65:
+            return "paid"
+        elif r < 0.85:
+            return "approved"
+        elif r < 0.95:
+            return "denied"
+        else:
+            return "appealed"
 
-df = pd.DataFrame({
-    "claim_id": claim_id,
-    "patient_id": patient_ids,
-    "encounter_id": encounter_ids,
-    "payer_name": payer_name,
-    "amount_billed": amount_billed,
-    "amount_paid": amount_paid,
-    "status": status,
-    "denial_reason": denial_reason
-})
+    # Self pay (no denial)
+    else:
+        return "paid"
 
-df.to_json("claims.json", orient="records", indent=2)
-print("the file done")
+
+def generate_amounts(base_cost, status):
+    # Add some noise to base encounter cost
+    amount_billed = round(base_cost * random.uniform(0.9, 1.3), 2)
+
+    if status == "paid":
+        amount_paid = round(amount_billed * random.uniform(0.7, 1.0), 2)
+    elif status == "approved":
+        amount_paid = round(amount_billed * random.uniform(0.5, 0.8), 2)
+    elif status == "denied":
+        amount_paid = 0
+    else:  # appealed
+        amount_paid = round(amount_billed * random.uniform(0.3, 0.6), 2)
+
+    return amount_billed, amount_paid
+
+
+def generate_processing_days(status):
+    if status == "paid":
+        return random.randint(3, 10)
+    elif status == "approved":
+        return random.randint(5, 15)
+    elif status == "denied":
+        return random.randint(7, 20)
+    else:
+        return random.randint(10, 30)
+
+
+# =========================
+# Generate Claims
+# =========================
+
+claims = []
+
+for _, encounter in encounters_df.iterrows():
+
+    payer = choose_payer()
+    status = generate_status(payer["type"])
+
+    base_cost = encounter.get("total_cost", random.uniform(500, 20000))
+
+    amount_billed, amount_paid = generate_amounts(base_cost, status)
+
+    claim = {
+        "claim_id": str(uuid.uuid4()),
+        "patient_id": encounter["PATIENT"],
+        "encounter_id": encounter["Id"],
+        "payer_name": payer["name"],
+        "payer_type": payer["type"],
+        "amount_billed": amount_billed,
+        "amount_paid": amount_paid,
+        "status": status,
+        "processing_days": generate_processing_days(status),
+        "denial_reason": random.choice(denial_reasons) if status == "denied" else None,
+        "claim_date": fake.date_between(start_date="-2y", end_date="today").isoformat()
+    }
+
+    claims.append(claim)
+
+# =========================
+# Save Output
+# =========================
+
+with open("Claims_v2.json", "w") as f:
+    json.dump(claims, f, indent=4)
+
+print(f"Generated {len(claims)} claims successfully")
